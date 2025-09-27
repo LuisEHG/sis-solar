@@ -50,7 +50,7 @@ jobs:
           retention-days: 5
 
   npm-audit:
-    name: NPM Audit (Dependencies Vulnerabilities)
+    name: NPM Audit - Dependencies Vulnerabilities
     runs-on: ubuntu-latest
     needs: [unit-testing, code-coverage]
     steps:
@@ -66,7 +66,7 @@ jobs:
           path: resultados/npm-audit.json
 
   semgrep_scan:
-    name: Semgrep Scan (SAST)
+    name: Semgrep Scan - SAST
     runs-on: ubuntu-latest
     needs: npm-audit
     container: returntocorp/semgrep
@@ -79,9 +79,35 @@ jobs:
         with:
           name: semgrep-report
           path: resultados/semgrep-default.json
+  
+  sonarqube_scan:
+    name: SonarQube Scan
+    runs-on: ubuntu-latest
+    needs: npm-audit
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: 18
+    - name: Install dependencies
+      run: npm install
+    - name: Run tests with coverage
+      run: npm run test -- --coverage
+    - name: SonarQube Scan
+      uses: SonarSource/sonarqube-scan-action@v2
+      env:
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+      with:
+        args: >
+          -Dsonar.projectKey=sistemasolar
+          -Dsonar.sources=.
+          -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+
 
   zap_scan:
-   name: OWASP ZAP Scan (DAST)
+   name: OWASP ZAP Scan - DAST
    runs-on: ubuntu-latest
    needs: semgrep_scan
    services:
@@ -94,10 +120,10 @@ jobs:
     - name: Build app image
       run: docker build -t sistemasolar:latest .
 
-    - name: Start My App
+    - name: Dockerizando mi aplicacion Sistema Solar
       run: |
         docker network create zap-net
-        docker run -d --name webapp --network zap-net -p 3000:3000 sistemasolar:latest
+        docker run -d --name sistemasolar --network zap-net -p 3000:3000 sistemasolar:latest
 
     - name: Run ZAP Baseline
       run: |
@@ -106,7 +132,7 @@ jobs:
           -v "$PWD/zap-report:/zap/wrk:rw" \
           zaproxy/zap-stable:latest \
           zap-baseline.py \
-            -t http://webapp:3000 \
+            -t http://sistemasolar:3000 \
             -r zap-default.html \
             -J zap-result.json \
             -m 2   # <- solo falla si hay medium o high
