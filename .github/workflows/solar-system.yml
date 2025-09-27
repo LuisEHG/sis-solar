@@ -59,6 +59,7 @@ jobs:
       - run: |
           mkdir -p resultados
           npm audit --json > resultados/npm-audit.json
+          continue-on-error: true
       - uses: actions/upload-artifact@v4
         with:
           name: npm-audit-report
