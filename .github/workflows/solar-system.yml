@@ -119,7 +119,11 @@ jobs:
         if: github.ref == 'refs/heads/master' 
         needs: docker
         uses: ./.github/workflows/reuse-deployment.yml
-        
+        secrets:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
+          MONGO_PASSWORD: ${{ secrets.MONGO_PASSWORD }}
 
     prod-integration-testing:
         name: Production Integration Testing
