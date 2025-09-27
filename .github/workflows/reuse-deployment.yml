@@ -2,7 +2,14 @@ name: Deployment - Reusable Workflow
 
 on:
     workflow_call:
-
+        secrets:
+          AZURE_CLIENT_ID:
+            required: true
+          AZURE_CLIENT_SECRET:
+            required: true
+          AZURE_CREDENTIALS:
+            required: true
+          MONGO_PASSWORD:
 jobs:
     reuse-deploy:
         environment:
