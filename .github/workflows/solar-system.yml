@@ -101,6 +101,10 @@ jobs:
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
           AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
           MONGO_PASSWORD: ${{ secrets.MONGO_PASSWORD }}
+        with:
+          MONGO_URI: ${{ vars.MONGO_URI }}
+          environment: dev
+          k8s-manifest-dir: kubernetes/development/
 
     dev-integracion-testing:
         if: contains(github.ref, 'feature/') 
@@ -124,7 +128,10 @@ jobs:
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
           AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
           MONGO_PASSWORD: ${{ secrets.MONGO_PASSWORD }}
-
+          with:
+          MONGO_URI: ${{ vars.MONGO_URI }}
+          environment: production
+          k8s-manifest-dir: kubernetes/production/
     prod-integration-testing:
         name: Production Integration Testing
         if: github.ref == 'refs/heads/master'
