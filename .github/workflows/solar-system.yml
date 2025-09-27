@@ -68,7 +68,7 @@ jobs:
   semgrep_scan:
     name: Semgrep Scan - SAST
     runs-on: ubuntu-latest
-    needs: npm-audit
+    needs: npm-audit 
     container: returntocorp/semgrep
     steps:
       - uses: actions/checkout@v4
@@ -80,36 +80,61 @@ jobs:
           name: semgrep-report
           path: resultados/semgrep-default.json
   
+
   sonarqube_scan:
-    name: SonarQube Scan
     runs-on: ubuntu-latest
-    needs: npm-audit
+    services:
+      sonarqube:
+        image: sonarqube:lts
+        ports:
+          - 9000:9000
+        options: >-
+          --health-cmd "curl -f http://localhost:9000 || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 20
+
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up Node
-      uses: actions/setup-node@v4
-      with:
-        node-version: 18
-    - name: Install dependencies
-      run: npm install
-    - name: Run tests with coverage
-      run: npm run test -- --coverage
-    - name: SonarQube Scan
-      uses: SonarSource/sonarqube-scan-action@v2
-      env:
-        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-      with:
-        args: >
-          -Dsonar.projectKey=sistemasolar
-          -Dsonar.sources=.
-          -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Wait for SonarQube to be ready
+        run: |
+          echo "Esperando a que SonarQube arranque..."
+          for i in {1..30}; do
+            if curl -s http://localhost:9000 > /dev/null; then
+              echo "SonarQube está arriba!"
+              break
+            fi
+            sleep 10
+          done
+
+      - name: Run SonarScanner
+        run: |
+          mkdir -p resultados
+          docker run --rm \
+            -e SONAR_HOST_URL=http://host.docker.internal:9000 \
+            -e SONAR_LOGIN=$SONAR_TOKEN \
+            -v "$PWD":/usr/src \
+            -v "$PWD/resultados":/resultados \
+            sonarsource/sonar-scanner-cli \
+            -Dsonar.projectKey=sistemasolar \
+            -Dsonar.sources=. \
+            -Dsonar.issuesReport.json.enable=true
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      - name: Upload Sonar results
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonarqube-report
+          path: resultados
 
 
   zap_scan:
    name: OWASP ZAP Scan - DAST
    runs-on: ubuntu-latest
-   needs: semgrep_scan
+   needs:  [semgrep_scan, sonarqube_scan]
    services:
     docker:
       image: docker:20.10-dind
