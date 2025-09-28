@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - main
+      - master
       - 'feature/*'
 
 env:
@@ -136,7 +136,7 @@ jobs:
         run: |
           echo "Verifying if URL is accessible: $URL"
           curl --max-time 10 -I https://$URL/ || echo "URL accessible - check ingress configuration"
-          
+
   prod-deploy:
     if: github.ref == 'refs/heads/master'
     needs: trivy_image_scan
@@ -161,5 +161,6 @@ jobs:
         env:
           URL: ${{ needs.prod-deploy.outputs.APP_INGRESS_URL }}
         run: |
-          echo "Verifying if URL is accessible: $URL"
-          curl --max-time 10 -I https://$URL/ || echo "URL accessible - check ingress configuration"
+          echo $URL
+          echo "-------------------------"
+          curl https://$URL/live -s -K | jq -r .status | grep -i live
