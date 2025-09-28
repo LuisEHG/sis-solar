@@ -105,6 +105,62 @@ jobs:
           -Dsonar.sources=.
           -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
 
+  trivy_scan:
+    name: Trivy Scan - SCA
+    runs-on: ubuntu-22.04
+    needs: npm-audit
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up reports directory
+        run: mkdir -p security-reports
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y curl wget jq gnupg
+
+      - name: Install Trivy
+        run: |
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+          echo "deb https://aquasecurity.github.io/trivy-repo/deb generic main" | sudo tee -a /etc/apt/sources.list
+          sudo apt-get update
+          sudo apt-get install -y trivy
+          trivy --version
+
+      - name: Update vulnerability database
+        run: trivy image --download-db-only
+
+      - name: Run Trivy FS scan (JSON)
+        run: |
+          trivy fs . \
+            --format json \
+            --output security-reports/trivy-report.json \
+            --severity HIGH,CRITICAL
+
+      - name: Run Trivy FS scan (table)
+        run: |
+          trivy fs . \
+            --format table \
+            --output security-reports/trivy-table.txt \
+            --severity HIGH,CRITICAL
+
+      - name: Show scan summary
+        run: cat security-reports/trivy-table.txt
+
+      - name: Fail on CRITICAL vulnerabilities
+        run: |
+          CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' security-reports/trivy-report.json)
+          echo "🚨 Vulnerabilidades críticas encontradas: $CRITICAL"
+          if [ "$CRITICAL" -gt 0 ]; then
+            echo "❌ Se encontraron vulnerabilidades críticas"
+            exit 1
+          fi
+
+      - name: Upload reports as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-security-reports
+          path: security-reports
+          retention-days: 7
 
   zap_scan:
    name: OWASP ZAP Scan - DAST
@@ -135,9 +191,7 @@ jobs:
             -t http://sistemasolar:3000 \
             -r zap-default.html \
             -J zap-result.json \
-            -m 2   # <- solo falla si hay medium o high
       continue-on-error: true
-
     - uses: actions/upload-artifact@v4
       with:
         name: zap-report
