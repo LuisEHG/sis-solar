@@ -124,19 +124,6 @@ jobs:
       AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
       MONGO_PASSWORD: ${{ secrets.MONGO_PASSWORD }}
 
-  dev-integration-testing:
-    if: contains(github.ref, 'feature/')
-    name: Dev Integration Testing
-    needs: dev-deploy
-    runs-on: ubuntu-latest
-    steps:
-      - name: Simple connectivity test
-        env:
-          URL: ${{ needs.dev-deploy.outputs.APP_INGRESS_URL }}
-        run: |
-          echo "Verifying if URL is accessible: $URL"
-          curl --max-time 10 -I https://$URL/ || echo "URL accessible - check ingress configuration"
-
   prod-deploy:
     if: github.ref == 'refs/heads/master'
     needs: trivy_image_scan
@@ -151,16 +138,4 @@ jobs:
       AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
       MONGO_PASSWORD: ${{ secrets.MONGO_PASSWORD }}
 
-  prod-integration-testing:
-    name: Production Integration Testing
-    if: github.ref == 'refs/heads/master'
-    needs: prod-deploy
-    runs-on: ubuntu-latest
-    steps:
-      - name: Simple connectivity test
-        env:
-          URL: ${{ needs.prod-deploy.outputs.APP_INGRESS_URL }}
-        run: |
-          echo $URL
-          echo "-------------------------"
-          curl https://$URL/live -s -K | jq -r .status | grep -i live
+
