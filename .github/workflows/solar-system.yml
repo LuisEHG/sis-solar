@@ -13,7 +13,6 @@ env:
   MONGO_PASSWORD: ${{ secrets.MONGO_PASSWORD }}
 
 jobs:
-
   unit-testing:
     name: Pruebas Unitarias
     runs-on: ubuntu-latest
@@ -30,13 +29,12 @@ jobs:
       - run: npm test
       - uses: actions/upload-artifact@v4
         with:
-          name: mocha-test-report
+          name: tests-unitarios
           path: test-results.xml
 
   code-coverage:
     name: Code Coverage
     runs-on: ubuntu-latest
-    needs: unit-testing
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -44,10 +42,10 @@ jobs:
           node-version: 18
       - run: npm install
       - run: npm run coverage
-        continue-on-error: true # Permite continuar aunque coverage no llegue al 100%
+        continue-on-error: true # No bloquea el pipeline si falla la cobertura
       - uses: actions/upload-artifact@v4
         with:
-          name: code-coverage-report
+          name: code-coverage
           path: coverage
           retention-days: 5
 
@@ -81,7 +79,7 @@ jobs:
           cache-from: type=registry,ref=luisrg3citperuacr001.azurecr.io/sistemasolar:latest
           cache-to: type=inline
 
-  trivy-image-scan:
+  trivy_image_scan:
     name: Trivy Scan - Container Image
     runs-on: ubuntu-22.04
     needs: docker
@@ -89,11 +87,9 @@ jobs:
       - name: Install Trivy
         run: |
           wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
-          echo "deb https://aquasecurity.github.io/trivy-repo/deb generic main" | sudo tee -a /etc/apt/sources.list
-          sudo apt-get update
-          sudo apt-get install -y trivy
+          echo "deb https://aquasecurity.github.io/trivy-repo/deb generic main" | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update && sudo apt-get install -y trivy
           trivy --version
-
       - name: Login to ACR
         uses: docker/login-action@v3
         with:
@@ -103,19 +99,20 @@ jobs:
 
       - name: Scan image
         run: |
+          mkdir -p resultados
           trivy image luisrg3citperuacr001.azurecr.io/sistemasolar:latest \
             --format json \
-            --output trivy-image-report.json \
+            --output resultados/security-trivy-image.json \
             --severity HIGH,CRITICAL
-        continue-on-error: true # No rompe el pipeline aunque encuentre vulnerabilidades
+        continue-on-error: true # El pipeline sigue aunque haya vulnerabilidades
       - uses: actions/upload-artifact@v4
         with:
-          name: trivy-image-report
-          path: trivy-image-report.json
+          name: security-trivy-image
+          path: resultados/security-trivy-image.json
 
   dev-deploy:
-    if: contains(github.ref, 'feature/') 
-    needs: trivy-image-scan
+    if: contains(github.ref, 'feature/')
+    needs: trivy_image_scan
     uses: ./.github/workflows/reuse-deployment.yml
     with:
       MONGO_URI: ${{ vars.MONGO_URI }}
@@ -128,7 +125,7 @@ jobs:
       MONGO_PASSWORD: ${{ secrets.MONGO_PASSWORD }}
 
   dev-integration-testing:
-    if: contains(github.ref, 'feature/') 
+    if: contains(github.ref, 'feature/')
     name: Dev Integration Testing
     needs: dev-deploy
     runs-on: ubuntu-latest
@@ -139,10 +136,9 @@ jobs:
         run: |
           echo "Verifying if URL is accessible: $URL"
           curl --max-time 10 -I https://$URL/ || echo "URL accessible - check ingress configuration"
-
   prod-deploy:
-    if: github.ref == 'refs/heads/main' 
-    needs: trivy-image-scan
+    if: github.ref == 'refs/heads/master'
+    needs: trivy_image_scan
     uses: ./.github/workflows/reuse-deployment.yml
     with:
       MONGO_URI: ${{ vars.MONGO_URI }}
@@ -156,7 +152,7 @@ jobs:
 
   prod-integration-testing:
     name: Production Integration Testing
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/master'
     needs: prod-deploy
     runs-on: ubuntu-latest
     steps:
