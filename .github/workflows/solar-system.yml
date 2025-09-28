@@ -15,22 +15,31 @@ env:
 jobs:
   unit-testing:
     name: Pruebas Unitarias
-    runs-on: ubuntu-latest
+    stragety:
+      matrix:
+        nodejs_version: [18, 19, 20]
+        operating_system: [ubuntu-latest, macos-latest]
+        exclude:
+          - nodejs_version: 18
+            operating_system: macos-latest
+    runs-on: ${{ matrix.operating_system }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 18
-      - uses: actions/cache@v3
-        with:
-          path: node_modules
-          key: ${{ runner.os }}-node-modules-${{ hashFiles('package-lock.json') }}
-      - run: npm install
-      - run: npm test
-      - uses: actions/upload-artifact@v4
-        with:
-          name: tests-unitarios
-          path: test-results.xml
+      -  name: Checkout Repository
+         uses: actions/checkout@v4
+
+      -  name: Setup NodeJS Version - ${{ matrix.nodejs_version}}
+         uses: actions/setup-node@v3
+         with:
+          node-version: ${{ matrix.nodejs_version }}
+
+      - name: Install dependencies
+        run: npm install
+      
+      - name: Unit Testing
+        run: npm test
+      - name: Resultados
+        uses: actions/upload-artifact@v3
+        
 
   code-coverage:
     name: Code Coverage
