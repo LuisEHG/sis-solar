@@ -1,0 +1,122 @@
+name: "Reusable Security Scans"
+
+on:
+  workflow_call:
+    inputs:
+      language:
+        description: "Lenguaje principal del proyecto (node, java, etc)"
+        required: true
+        type: string
+      docker_image:
+        description: "Imagen del contenedor a escanear"
+        required: false
+        type: string
+    secrets:
+      SONAR_TOKEN:
+        required: true
+      SONAR_HOST_URL:
+        required: true
+
+jobs:
+  sast-semgrep:
+    name: Semgrep Scan (SAST)
+    runs-on: ubuntu-latest
+    container: returntocorp/semgrep
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          mkdir -p resultados
+          semgrep --config auto . --json --output resultados/semgrep.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-report
+          path: resultados/semgrep.json
+
+  sast-sonarqube:
+    name: SonarQube Scan
+    runs-on: ubuntu-latest
+    needs: sast-semgrep
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+      - run: npm install
+      - run: npm run test -- --coverage
+      - uses: SonarSource/sonarqube-scan-action@v2
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        with:
+          args: >
+            -Dsonar.projectKey=${{ github.event.repository.name }}
+            -Dsonar.sources=.
+            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
+
+  sca-npm-audit:
+    name: NPM Audit (SCA)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm install
+      - run: |
+          mkdir -p resultados
+          npm audit --json > resultados/npm-audit.json
+        continue-on-error: true # Esto evita que el pipeline falle por vulnerabilidades en dependencias; genera solo el reporte
+      - uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-report
+          path: resultados/npm-audit.json
+
+  sca-trivy-fs:
+    name: Trivy FS Scan (SCA)
+    runs-on: ubuntu-latest
+    needs: sca-npm-audit
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Trivy
+        run: |
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+          echo "deb https://aquasecurity.github.io/trivy-repo/deb generic main" | sudo tee -a /etc/apt/sources.list
+          sudo apt-get update
+          sudo apt-get install -y trivy
+      - run: mkdir -p resultados
+      - run: |
+          trivy fs . \
+            --format json \
+            --output resultados/trivy-fs.json \
+            --severity HIGH,CRITICAL
+        continue-on-error: true # Esto permite generar el reporte aunque se encuentren vulnerabilidades críticas
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trivy-fs-report
+          path: resultados/trivy-fs.json
+
+  dast-zap:
+    name: OWASP ZAP Scan (DAST)
+    runs-on: ubuntu-latest
+    needs: [sast-sonarqube, sca-trivy-fs]
+    services:
+      docker:
+        image: docker:20.10-dind
+        options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t app-under-test:latest .
+      - run: |
+          docker network create zap-net
+          docker run -d --name app --network zap-net -p 3000:3000 app-under-test:latest
+      - run: |
+          mkdir -p zap-report && chmod 777 zap-report
+          docker run --rm --network zap-net \
+            -v "$PWD/zap-report:/zap/wrk:rw" \
+            zaproxy/zap-stable:latest \
+            zap-baseline.py \
+              -t http://app:3000 \
+              -r zap.html \
+              -J zap.json
+        continue-on-error: true # Esto evita que el job falle si ZAP encuentra vulnerabilidades; se guarda el reporte igualmente
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zap-report
+          path: zap-report

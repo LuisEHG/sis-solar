@@ -49,149 +49,21 @@ jobs:
           path: coverage
           retention-days: 5
 
-  npm-audit:
-    name: NPM Audit - Dependencies Vulnerabilities
-    runs-on: ubuntu-latest
+  # === Controles de seguridad con workflow reusable ===
+  security-controls:
+    name: Security Controls (SAST + SCA + DAST)
     needs: [unit-testing, code-coverage]
-    steps:
-      - uses: actions/checkout@v4
-      - run: npm install
-      - run: |
-          mkdir -p resultados
-          npm audit --json > resultados/npm-audit.json
-        continue-on-error: true
-      - uses: actions/upload-artifact@v4
-        with:
-          name: npm-audit-report
-          path: resultados/npm-audit.json
-
-  semgrep_scan:
-    name: Semgrep Scan - SAST
-    runs-on: ubuntu-latest
-    needs: npm-audit 
-    container: returntocorp/semgrep
-    steps:
-      - uses: actions/checkout@v4
-      - run: |
-          mkdir -p resultados
-          semgrep --config auto . --json --output resultados/semgrep-default.json
-      - uses: actions/upload-artifact@v4
-        with:
-          name: semgrep-report
-          path: resultados/semgrep-default.json
-  
-  sonarqube_scan:
-    name: SonarQube Scan
-    runs-on: ubuntu-latest
-    needs: npm-audit
-    steps:
-    - uses: actions/checkout@v4
-    - name: Set up Node
-      uses: actions/setup-node@v4
-      with:
-        node-version: 18
-    - name: Install dependencies
-      run: npm install
-    - name: Run tests with coverage
-      run: npm run test -- --coverage
-    - name: SonarQube Scan
-      uses: SonarSource/sonarqube-scan-action@v2
-      env:
-        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
-      with:
-        args: >
-          -Dsonar.projectKey=sistemasolar
-          -Dsonar.sources=.
-          -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
-
-  trivy_scan:
-    name: Trivy Scan - SCA (Filesystem)
-    runs-on: ubuntu-22.04
-    needs: npm-audit
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up reports directory
-        run: mkdir -p security-reports
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y curl wget jq gnupg
-      - name: Install Trivy
-        run: |
-          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
-          echo "deb https://aquasecurity.github.io/trivy-repo/deb generic main" | sudo tee -a /etc/apt/sources.list
-          sudo apt-get update
-          sudo apt-get install -y trivy
-          trivy --version
-      - name: Update vulnerability database
-        run: trivy image --download-db-only
-      - name: Run Trivy FS scan (JSON)
-        run: |
-          trivy fs . \
-            --format json \
-            --output security-reports/trivy-report.json \
-            --severity HIGH,CRITICAL
-      - name: Run Trivy FS scan (table)
-        run: |
-          trivy fs . \
-            --format table \
-            --output security-reports/trivy-table.txt \
-            --severity HIGH,CRITICAL
-      - name: Show scan summary
-        run: cat security-reports/trivy-table.txt
-      - name: Fail on CRITICAL vulnerabilities
-        run: |
-          CRITICAL=$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity == "CRITICAL")] | length' security-reports/trivy-report.json)
-          echo "🚨 Vulnerabilidades críticas encontradas: $CRITICAL"
-          if [ "$CRITICAL" -gt 0 ]; then
-            echo "❌ Se encontraron vulnerabilidades críticas"
-            exit 1
-          fi
-        continue-on-error: true ## PONGO ESTA ADVERTENCIA PARA QUE EL JOB NO SE DETENGA
-      - name: Upload reports as artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: trivy-fs-reports
-          path: security-reports
-          retention-days: 7
-          
-
-  zap_scan:
-   name: OWASP ZAP Scan - DAST
-   runs-on: ubuntu-latest
-   needs:  [semgrep_scan, sonarqube_scan, trivy_scan]
-   services:
-    docker:
-      image: docker:20.10-dind
-      options: --privileged
-   steps:
-    - uses: actions/checkout@v4
-    - name: Build app image
-      run: docker build -t sistemasolar:latest .
-    - name: Dockerizando mi aplicacion Sistema Solar
-      run: |
-        docker network create zap-net
-        docker run -d --name sistemasolar --network zap-net -p 3000:3000 sistemasolar:latest
-    - name: Run ZAP Baseline
-      run: |
-        mkdir -p zap-report && chmod 777 zap-report
-        docker run --rm --network zap-net \
-          -v "$PWD/zap-report:/zap/wrk:rw" \
-          zaproxy/zap-stable:latest \
-          zap-baseline.py \
-            -t http://sistemasolar:3000 \
-            -r zap-default.html \
-            -J zap-result.json \
-      continue-on-error: true
-    - uses: actions/upload-artifact@v4
-      with:
-        name: zap-report
-        path: zap-report
+    uses: ./.github/workflows/reuse-security.yml
+    with:
+      language: node
+      docker_image: luisrg3citperuacr001.azurecr.io/sistemasolar:latest
+    secrets:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 
   docker:
     name: Container Build & Push
-    needs: zap_scan
+    needs: security-controls
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -234,13 +106,11 @@ jobs:
             --format json \
             --output trivy-image-report.json \
             --severity HIGH,CRITICAL
-
+        continue-on-error: true # Permite que el pipeline continúe aunque se encuentren vulnerabilidades en la imagen
       - uses: actions/upload-artifact@v4
         with:
           name: trivy-image-report
           path: trivy-image-report.json
-
-
 
   # === Deploy jobs reutilizando reuse-deployment.yml ===
   dev-deploy:
