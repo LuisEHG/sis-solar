@@ -29,7 +29,7 @@ jobs:
       - run: npm test
       - uses: actions/upload-artifact@v4
         with:
-          name: Mocha-Test-Result
+          name: tests-unitarios
           path: test-results.xml
 
   code-coverage:
@@ -42,14 +42,13 @@ jobs:
           node-version: 18
       - run: npm install
       - run: npm run coverage
-        continue-on-error: true
+        continue-on-error: true # No bloquea el pipeline si falla la cobertura
       - uses: actions/upload-artifact@v4
         with:
-          name: Code-Coverage-Resultado
+          name: code-coverage
           path: coverage
           retention-days: 5
 
-  # === Controles de seguridad con workflow reusable ===
   security-controls:
     name: Security Controls (SAST + SCA + DAST)
     needs: [unit-testing, code-coverage]
@@ -88,9 +87,8 @@ jobs:
       - name: Install Trivy
         run: |
           wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
-          echo "deb https://aquasecurity.github.io/trivy-repo/deb generic main" | sudo tee -a /etc/apt/sources.list
-          sudo apt-get update
-          sudo apt-get install -y trivy
+          echo "deb https://aquasecurity.github.io/trivy-repo/deb generic main" | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update && sudo apt-get install -y trivy
           trivy --version
 
       - name: Login to ACR
@@ -102,19 +100,19 @@ jobs:
 
       - name: Scan image
         run: |
+          mkdir -p resultados
           trivy image luisrg3citperuacr001.azurecr.io/sistemasolar:latest \
             --format json \
-            --output trivy-image-report.json \
+            --output resultados/security-trivy-image.json \
             --severity HIGH,CRITICAL
-        continue-on-error: true # Permite que el pipeline continúe aunque se encuentren vulnerabilidades en la imagen
+        continue-on-error: true # El pipeline sigue aunque haya vulnerabilidades
       - uses: actions/upload-artifact@v4
         with:
-          name: trivy-image-report
-          path: trivy-image-report.json
+          name: security-trivy-image
+          path: resultados/security-trivy-image.json
 
-  # === Deploy jobs reutilizando reuse-deployment.yml ===
   dev-deploy:
-    if: contains(github.ref, 'feature/') 
+    if: contains(github.ref, 'feature/')
     needs: trivy_image_scan
     uses: ./.github/workflows/reuse-deployment.yml
     with:
@@ -128,7 +126,7 @@ jobs:
       MONGO_PASSWORD: ${{ secrets.MONGO_PASSWORD }}
 
   dev-integration-testing:
-    if: contains(github.ref, 'feature/') 
+    if: contains(github.ref, 'feature/')
     name: Dev Integration Testing
     needs: dev-deploy
     runs-on: ubuntu-latest
@@ -141,7 +139,7 @@ jobs:
           curl --max-time 10 -I https://$URL/ || echo "URL accessible - check ingress configuration"
 
   prod-deploy:
-    if: github.ref == 'refs/heads/master' 
+    if: github.ref == 'refs/heads/master'
     needs: trivy_image_scan
     uses: ./.github/workflows/reuse-deployment.yml
     with:
