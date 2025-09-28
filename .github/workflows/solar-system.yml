@@ -40,22 +40,30 @@ jobs:
         with:
           name: Resultados
           path: resultados-test.xml
-        
-
+    
   code-coverage:
     name: Code Coverage
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup NodeJS Version - 18
+        uses: actions/setup-node@v4
         with:
           node-version: 18
-      - run: npm install
-      - run: npm run coverage
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: check code coverage
         continue-on-error: true # No bloquea el pipeline si falla la cobertura
-      - uses: actions/upload-artifact@v4
+        run: npm run coverage
+
+      - name: Resultado test
+        uses: actions/upload-artifact@v4
         with:
-          name: code-coverage
+          name: code-coverage-Resultados
           path: coverage
           retention-days: 5
 
