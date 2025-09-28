@@ -15,7 +15,7 @@ env:
 jobs:
   unit-testing:
     name: Pruebas Unitarias
-    stragety:
+    strategy:
       matrix:
         nodejs_version: [18, 19, 20]
         operating_system: [ubuntu-latest, macos-latest]
