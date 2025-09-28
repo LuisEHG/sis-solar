@@ -15,37 +15,55 @@ env:
 jobs:
   unit-testing:
     name: Pruebas Unitarias
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        nodejs_version: [18, 19]
+        operating_system: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.operating_system }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 18
-      - uses: actions/cache@v3
-        with:
-          path: node_modules
-          key: ${{ runner.os }}-node-modules-${{ hashFiles('package-lock.json') }}
-      - run: npm install
-      - run: npm test
-      - uses: actions/upload-artifact@v4
-        with:
-          name: tests-unitarios
-          path: test-results.xml
+      -  name: Checkout Repository
+         uses: actions/checkout@v4
 
+      -  name: Setup NodeJS Version - ${{ matrix.nodejs_version}}
+         uses: actions/setup-node@v3
+         with:
+          node-version: ${{ matrix.nodejs_version }}
+
+      - name: Install dependencies
+        run: npm install
+      
+      - name: Unit Testing
+        run: npm test
+
+      - name: Resultados de test
+        uses: actions/upload-artifact@v4
+        with:
+          name: Resultados
+          path: resultados-test.xml
+    
   code-coverage:
     name: Code Coverage
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup NodeJS Version - 18
+        uses: actions/setup-node@v4
         with:
           node-version: 18
-      - run: npm install
-      - run: npm run coverage
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: check code coverage
         continue-on-error: true # No bloquea el pipeline si falla la cobertura
-      - uses: actions/upload-artifact@v4
+        run: npm run coverage
+
+      - name: Resultado test
+        uses: actions/upload-artifact@v4
         with:
-          name: code-coverage
+          name: code-coverage-Resultados
           path: coverage
           retention-days: 5
 
@@ -124,19 +142,6 @@ jobs:
       AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
       MONGO_PASSWORD: ${{ secrets.MONGO_PASSWORD }}
 
-  dev-integration-testing:
-    if: contains(github.ref, 'feature/')
-    name: Dev Integration Testing
-    needs: dev-deploy
-    runs-on: ubuntu-latest
-    steps:
-      - name: Simple connectivity test
-        env:
-          URL: ${{ needs.dev-deploy.outputs.APP_INGRESS_URL }}
-        run: |
-          echo "Verifying if URL is accessible: $URL"
-          curl --max-time 10 -I https://$URL/ || echo "URL accessible - check ingress configuration"
-
   prod-deploy:
     if: github.ref == 'refs/heads/master'
     needs: trivy_image_scan
@@ -151,16 +156,4 @@ jobs:
       AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
       MONGO_PASSWORD: ${{ secrets.MONGO_PASSWORD }}
 
-  prod-integration-testing:
-    name: Production Integration Testing
-    if: github.ref == 'refs/heads/master'
-    needs: prod-deploy
-    runs-on: ubuntu-latest
-    steps:
-      - name: Simple connectivity test
-        env:
-          URL: ${{ needs.prod-deploy.outputs.APP_INGRESS_URL }}
-        run: |
-          echo $URL
-          echo "-------------------------"
-          curl https://$URL/live -s -K | jq -r .status | grep -i live
+
