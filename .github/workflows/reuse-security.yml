@@ -17,22 +17,23 @@ on:
         required: true
 
 jobs:
+  
   sast-semgrep:
-    name: SAST - Semgrep
+    name: Semgrep Scan (SAST)
     runs-on: ubuntu-latest
     container: returntocorp/semgrep
     steps:
       - uses: actions/checkout@v4
       - run: |
           mkdir -p resultados
-          semgrep --config auto . --json --output resultados/security-sast-semgrep.json
+          semgrep --config auto . --json --output resultados/semgrep.json
       - uses: actions/upload-artifact@v4
         with:
-          name: security-sast-semgrep
-          path: resultados/security-sast-semgrep.json
+          name: semgrep-report
+          path: resultados/semgrep.json
 
   sast-sonarqube:
-    name: SAST - SonarQube
+    name: SonarQube Scan
     runs-on: ubuntu-latest
     needs: sast-semgrep
     steps:
@@ -40,35 +41,35 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 18
+          fetch-depth: 0
       - run: npm install
+      - run: npm run test -- --coverage
       - uses: SonarSource/sonarqube-scan-action@v2
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
         with:
           args: >
-            -Dsonar.projectKey=${{ github.event.repository.name }}
             -Dsonar.sources=.
             -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
-      - run: echo "SonarQube scan completed"
 
   sca-npm-audit:
-    name: SCA - NPM Audit
+    name: NPM Audit (SCA)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: npm install
       - run: |
           mkdir -p resultados
-          npm audit --json > resultados/security-sca-npm.json
-        continue-on-error: true # Permite continuar aunque haya vulnerabilidades
+          npm audit --json > resultados/npm-audit.json
+        continue-on-error: true # No rompe el pipeline aunque encuentre vulnerabilidades
       - uses: actions/upload-artifact@v4
         with:
-          name: security-sca-npm
-          path: resultados/security-sca-npm.json
+          name: npm-audit-report
+          path: resultados/npm-audit.json
 
   sca-trivy-fs:
-    name: SCA - Trivy FS
+    name: Trivy FS Scan (SCA)
     runs-on: ubuntu-latest
     needs: sca-npm-audit
     steps:
@@ -76,22 +77,23 @@ jobs:
       - name: Install Trivy
         run: |
           wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
-          echo "deb https://aquasecurity.github.io/trivy-repo/deb generic main" | sudo tee /etc/apt/sources.list.d/trivy.list
-          sudo apt-get update && sudo apt-get install -y trivy
+          echo "deb https://aquasecurity.github.io/trivy-repo/deb generic main" | sudo tee -a /etc/apt/sources.list
+          sudo apt-get update
+          sudo apt-get install -y trivy
       - run: mkdir -p resultados
       - run: |
           trivy fs . \
             --format json \
-            --output resultados/security-sca-trivy-fs.json \
+            --output resultados/trivy-fs.json \
             --severity HIGH,CRITICAL
         continue-on-error: true
       - uses: actions/upload-artifact@v4
         with:
-          name: security-sca-trivy-fs
-          path: resultados/security-sca-trivy-fs.json
+          name: trivy-fs-report
+          path: resultados/trivy-fs.json
 
   dast-zap:
-    name: DAST - OWASP ZAP
+    name: OWASP ZAP Scan (DAST)
     runs-on: ubuntu-latest
     needs: [sast-sonarqube, sca-trivy-fs]
     services:
@@ -116,5 +118,5 @@ jobs:
         continue-on-error: true
       - uses: actions/upload-artifact@v4
         with:
-          name: security-dast-zap
+          name: zap-report
           path: zap-report

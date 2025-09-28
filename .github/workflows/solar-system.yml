@@ -50,7 +50,7 @@ jobs:
           retention-days: 5
 
   security-controls:
-    name: Security Controls (SAST + SCA + DAST)
+    name: Security Controls
     needs: [unit-testing, code-coverage]
     uses: ./.github/workflows/reuse-security.yml
     with:
@@ -136,6 +136,7 @@ jobs:
         run: |
           echo "Verifying if URL is accessible: $URL"
           curl --max-time 10 -I https://$URL/ || echo "URL accessible - check ingress configuration"
+          
   prod-deploy:
     if: github.ref == 'refs/heads/master'
     needs: trivy_image_scan
